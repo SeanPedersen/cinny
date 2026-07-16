@@ -534,7 +534,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
 
   const imagePackRooms: Room[] = useImagePackRooms(room.roomId, roomToParents);
 
-  const [unreadInfo, setUnreadInfo] = useState(() => getRoomUnreadInfo(room, true));
+  const [unreadInfo, setUnreadInfo] = useState(() => getRoomUnreadInfo(room));
   const readUptoEventIdRef = useRef<string>();
   if (unreadInfo) {
     readUptoEventIdRef.current = unreadInfo.readUptoEventId;
@@ -546,6 +546,8 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
   atBottomRef.current = atBottom;
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timelineContentRef = useRef<HTMLDivElement>(null);
+  const initialScrollPendingRef = useRef(!eventId);
   const scrollToBottomRef = useRef({
     count: 0,
     smooth: true,
@@ -850,6 +852,16 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
     useCallback(() => roomInputRef.current, [roomInputRef])
   );
 
+  // Stay at bottom while timeline content finishes rendering.
+  useResizeObserver(
+    useCallback(() => {
+      if (!atBottomRef.current) return;
+      const scrollElement = getScrollElement();
+      if (scrollElement) scrollToBottom(scrollElement);
+    }, [getScrollElement]),
+    useCallback(() => timelineContentRef.current, [])
+  );
+
   const tryAutoMarkAsRead = useCallback(() => {
     const readUptoEventId = readUptoEventIdRef.current;
     if (!readUptoEventId) {
@@ -949,11 +961,13 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
 
   // Scroll to bottom on initial timeline load
   useLayoutEffect(() => {
+    if (!initialScrollPendingRef.current || eventsLength === 0) return;
     const scrollEl = scrollRef.current;
-    if (scrollEl) {
-      scrollToBottom(scrollEl);
-    }
-  }, []);
+    if (!scrollEl) return;
+
+    scrollToBottom(scrollEl);
+    initialScrollPendingRef.current = false;
+  }, [eventsLength]);
 
   // if live timeline is linked and unreadInfo change
   // Scroll to last read message
@@ -1901,6 +1915,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
       )}
       <Scroll ref={scrollRef} visibility="Hover">
         <Box
+          ref={timelineContentRef}
           direction="Column"
           justifyContent="End"
           style={{ minHeight: '100%', padding: `${config.space.S600} 0` }}
