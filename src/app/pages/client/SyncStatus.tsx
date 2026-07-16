@@ -1,87 +1,89 @@
+/** Displays a non-layout-shifting alert when Matrix synchronization fails. */
 import { MatrixClient, SyncState } from 'matrix-js-sdk';
 import React, { useCallback, useState } from 'react';
-import { Box, config, Line, Text } from 'folds';
+import FocusTrap from 'focus-trap-react';
+import {
+  Box,
+  Button,
+  config,
+  Dialog,
+  Header,
+  Overlay,
+  OverlayBackdrop,
+  OverlayCenter,
+  Text,
+} from 'folds';
 import { useSyncState } from '../../hooks/useSyncState';
-import { ContainerColor } from '../../styles/ContainerColor.css';
+import { stopPropagation } from '../../utils/keyboard';
 
-type StateData = {
+type SyncStatusData = {
   current: SyncState | null;
-  previous: SyncState | null | undefined;
+  errorDismissed: boolean;
 };
 
 type SyncStatusProps = {
   mx: MatrixClient;
 };
+
 export function SyncStatus({ mx }: SyncStatusProps) {
-  const [stateData, setStateData] = useState<StateData>({
+  const [status, setStatus] = useState<SyncStatusData>({
     current: null,
-    previous: undefined,
+    errorDismissed: false,
   });
 
   useSyncState(
     mx,
-    useCallback((current, previous) => {
-      setStateData((s) => {
-        if (s.current === current && s.previous === previous) {
-          return s;
-        }
-        return { current, previous };
-      });
+    useCallback((current) => {
+      setStatus((previousStatus) => ({
+        current,
+        errorDismissed: current === SyncState.Error ? previousStatus.errorDismissed : false,
+      }));
     }, [])
   );
 
-  if (
-    (stateData.current === SyncState.Prepared ||
-      stateData.current === SyncState.Syncing ||
-      stateData.current === SyncState.Catchup) &&
-    stateData.previous !== SyncState.Syncing
-  ) {
-    return (
-      <Box direction="Column" shrink="No">
-        <Box
-          className={ContainerColor({ variant: 'Success' })}
-          style={{ padding: `${config.space.S100} 0` }}
-          alignItems="Center"
-          justifyContent="Center"
-        >
-          <Text size="L400">Connecting...</Text>
-        </Box>
-        <Line variant="Success" size="300" />
-      </Box>
-    );
+  const dismissError = () => {
+    setStatus((previousStatus) => ({ ...previousStatus, errorDismissed: true }));
+  };
+
+  if (status.current !== SyncState.Error || status.errorDismissed) {
+    return null;
   }
 
-  if (stateData.current === SyncState.Reconnecting) {
-    return (
-      <Box direction="Column" shrink="No">
-        <Box
-          className={ContainerColor({ variant: 'Warning' })}
-          style={{ padding: `${config.space.S100} 0` }}
-          alignItems="Center"
-          justifyContent="Center"
+  return (
+    <Overlay open backdrop={<OverlayBackdrop />}>
+      <OverlayCenter>
+        <FocusTrap
+          focusTrapOptions={{
+            initialFocus: false,
+            clickOutsideDeactivates: true,
+            onDeactivate: dismissError,
+            escapeDeactivates: stopPropagation,
+          }}
         >
-          <Text size="L400">Connection Lost! Reconnecting...</Text>
-        </Box>
-        <Line variant="Warning" size="300" />
-      </Box>
-    );
-  }
-
-  if (stateData.current === SyncState.Error) {
-    return (
-      <Box direction="Column" shrink="No">
-        <Box
-          className={ContainerColor({ variant: 'Critical' })}
-          style={{ padding: `${config.space.S100} 0` }}
-          alignItems="Center"
-          justifyContent="Center"
-        >
-          <Text size="L400">Connection Lost!</Text>
-        </Box>
-        <Line variant="Critical" size="300" />
-      </Box>
-    );
-  }
-
-  return null;
+          <Dialog variant="Surface">
+            <Header
+              style={{
+                padding: `0 ${config.space.S400}`,
+                borderBottomWidth: config.borderWidth.B300,
+              }}
+              variant="Surface"
+              size="500"
+            >
+              <Text size="H4">Connection Failed</Text>
+            </Header>
+            <Box style={{ padding: config.space.S400 }} direction="Column" gap="400">
+              <Text priority="400">
+                Unable to connect to the server. Check your connection and try again.
+              </Text>
+              <Button variant="Critical" onClick={dismissError}>
+                <Text as="span" size="B400">
+                  Dismiss
+                </Text>
+              </Button>
+            </Box>
+          </Dialog>
+        </FocusTrap>
+      </OverlayCenter>
+    </Overlay>
+  );
 }
