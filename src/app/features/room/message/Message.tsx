@@ -48,9 +48,11 @@ import {
 } from '../../../components/message';
 import {
   canEditEvent,
+  getEditedEvent,
   getEventEdits,
   getMemberAvatarMxc,
   getMemberDisplayName,
+  trimReplyFromBody,
 } from '../../../utils/room';
 import {
   getCanonicalAliasOrRoomId,
@@ -75,7 +77,7 @@ import { getMatrixToRoomEvent } from '../../../plugins/matrix-to';
 import { getViaServers } from '../../../plugins/via-servers';
 import { useMediaAuthentication } from '../../../hooks/useMediaAuthentication';
 import { useRoomPinnedEvents } from '../../../hooks/useRoomPinnedEvents';
-import { MemberPowerTag, StateEvent } from '../../../../types/matrix/room';
+import { MemberPowerTag, MessageEvent, StateEvent } from '../../../../types/matrix/room';
 import { PowerIcon } from '../../../components/power';
 import colorMXID from '../../../../util/colorMXID';
 import { getPowerTagIconSrc } from '../../../hooks/useMemberPowerTag';
@@ -344,6 +346,61 @@ export const MessageCopyLinkItem = as<
     >
       <Text className={css.MessageMenuItemText} as="span" size="T300" truncate>
         Copy Link
+      </Text>
+    </MenuItem>
+  );
+});
+
+export const getMessageCopyText = (room: Room, mEvent: MatrixEvent): string | undefined => {
+  const eventType = mEvent.getType();
+  if (
+    mEvent.isRedacted() ||
+    (eventType !== MessageEvent.RoomMessage && eventType !== MessageEvent.Sticker)
+  )
+    return undefined;
+
+  const eventId = mEvent.getId();
+  const eventTimeline = eventId ? room.getTimelineForEvent(eventId) : undefined;
+  const editedEvent =
+    eventId && eventTimeline
+      ? getEditedEvent(eventId, mEvent, eventTimeline.getTimelineSet())
+      : undefined;
+  const content = editedEvent?.getContent()['m.new_content'] ?? mEvent.getContent();
+  const messageText =
+    typeof content.body === 'string' ? trimReplyFromBody(content.body) : undefined;
+
+  return messageText || undefined;
+};
+
+export const MessageCopyTextItem = as<
+  'button',
+  {
+    room: Room;
+    mEvent: MatrixEvent;
+    selectedText?: string;
+    onClose?: () => void;
+  }
+>(({ room, mEvent, selectedText, onClose, ...props }, ref) => {
+  const text = selectedText || getMessageCopyText(room, mEvent);
+
+  if (!text) return null;
+
+  const handleCopy = () => {
+    copyToClipboard(text);
+    onClose?.();
+  };
+
+  return (
+    <MenuItem
+      size="300"
+      after={<Icon size="100" src={Icons.Text} />}
+      radii="300"
+      onClick={handleCopy}
+      {...props}
+      ref={ref}
+    >
+      <Text className={css.MessageMenuItemText} as="span" size="T300" truncate>
+        {selectedText ? 'Copy Selected Text' : 'Copy Text'}
       </Text>
     </MenuItem>
   );
@@ -677,6 +734,8 @@ export type MessageProps = {
   reactions?: ReactNode;
   hideReadReceipts?: boolean;
   showDeveloperTools?: boolean;
+  selectionSelected?: boolean;
+  selectedText?: string;
   memberPowerTag?: MemberPowerTag;
   accessibleTagColors?: Map<string, string>;
   legacyUsernameColor?: boolean;
@@ -708,6 +767,8 @@ export const Message = as<'div', MessageProps>(
       reactions,
       hideReadReceipts,
       showDeveloperTools,
+      selectionSelected,
+      selectedText,
       memberPowerTag,
       accessibleTagColors,
       legacyUsernameColor,
@@ -726,6 +787,7 @@ export const Message = as<'div', MessageProps>(
     const { hoverProps } = useHover({ onHoverChange: setHover });
     const { focusWithinProps } = useFocusWithin({ onFocusWithinChange: setHover });
     const [menuAnchor, setMenuAnchor] = useState<RectCords>();
+    const [nativeSelectedText, setNativeSelectedText] = useState<string>();
     const [emojiBoardAnchor, setEmojiBoardAnchor] = useState<RectCords>();
 
     const senderDisplayName =
@@ -836,10 +898,16 @@ export const Message = as<'div', MessageProps>(
     );
 
     const handleContextMenu: MouseEventHandler<HTMLDivElement> = (evt) => {
-      if (evt.altKey || !window.getSelection()?.isCollapsed || edit) return;
+      if (evt.altKey || edit) return;
       const tag = (evt.target as any).tagName;
       if (typeof tag === 'string' && tag.toLowerCase() === 'a') return;
       evt.preventDefault();
+      const selection = window.getSelection();
+      const messageSelection =
+        selection && !selection.isCollapsed && selection.containsNode(evt.currentTarget, true)
+          ? selection.toString()
+          : undefined;
+      setNativeSelectedText(messageSelection || undefined);
       setMenuAnchor({
         x: evt.clientX,
         y: evt.clientY,
@@ -850,10 +918,12 @@ export const Message = as<'div', MessageProps>(
 
     const handleOpenMenu: MouseEventHandler<HTMLButtonElement> = (evt) => {
       const target = evt.currentTarget.parentElement?.parentElement ?? evt.currentTarget;
+      setNativeSelectedText(undefined);
       setMenuAnchor(target.getBoundingClientRect());
     };
 
     const closeMenu = () => {
+      setNativeSelectedText(undefined);
       setMenuAnchor(undefined);
     };
 
@@ -883,7 +953,7 @@ export const Message = as<'div', MessageProps>(
         space={messageSpacing}
         collapse={collapse}
         highlight={highlight}
-        selected={!!menuAnchor || !!emojiBoardAnchor}
+        selected={selectionSelected || !!menuAnchor || !!emojiBoardAnchor}
         {...props}
         {...hoverProps}
         {...focusWithinProps}
@@ -1085,6 +1155,12 @@ export const Message = as<'div', MessageProps>(
                             />
                           )}
                           <MessageCopyLinkItem room={room} mEvent={mEvent} onClose={closeMenu} />
+                          <MessageCopyTextItem
+                            room={room}
+                            mEvent={mEvent}
+                            selectedText={selectedText || nativeSelectedText}
+                            onClose={closeMenu}
+                          />
                           {canPinEvent && (
                             <MessagePinItem room={room} mEvent={mEvent} onClose={closeMenu} />
                           )}

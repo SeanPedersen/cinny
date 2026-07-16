@@ -86,7 +86,7 @@ import {
 import { useSetting } from '../../state/hooks/settings';
 import { MessageLayout, settingsAtom } from '../../state/settings';
 import { useMatrixEventRenderer } from '../../hooks/useMatrixEventRenderer';
-import { Reactions, Message, Event, EncryptedContent } from './message';
+import { Reactions, Message, Event, EncryptedContent, getMessageCopyText } from './message';
 import { useMemberEventParser } from '../../hooks/useMemberEventParser';
 import * as customHtmlCss from '../../styles/CustomHtml.css';
 import { RoomIntro } from '../../components/room-intro';
@@ -231,6 +231,54 @@ type RoomTimelineProps = {
 };
 
 const PAGINATION_LIMIT = 80;
+const MESSAGE_SELECTION_DRAG_THRESHOLD = 4;
+const MESSAGE_ITEM_SELECTOR = '[data-message-item]';
+const MESSAGE_SELECTION_INTERACTIVE_SELECTOR =
+  'a, button, input, textarea, select, [contenteditable="true"], [role="button"]';
+const COPYABLE_MESSAGE_EVENT_TYPES = new Set<string>([
+  MessageEvent.RoomMessage,
+  MessageEvent.Sticker,
+]);
+
+type MessageSelection = {
+  anchorIndex: number;
+  focusIndex: number;
+};
+
+type MessageSelectionDrag = MessageSelection & {
+  active: boolean;
+  nativeTextSelection: boolean;
+  startX: number;
+  startY: number;
+};
+
+const getMessageItem = (element: Element | null): number | undefined => {
+  if (!(element instanceof HTMLElement)) return undefined;
+  const item = Number(element.dataset.messageItem);
+  return Number.isInteger(item) ? item : undefined;
+};
+
+const getClosestMessageItem = (container: HTMLElement, clientY: number): number | undefined => {
+  const messageElements = Array.from(
+    container.querySelectorAll<HTMLElement>(MESSAGE_ITEM_SELECTOR)
+  );
+  let closestItem: number | undefined;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  messageElements.forEach((messageElement) => {
+    const item = getMessageItem(messageElement);
+    if (item === undefined) return;
+    const { top, bottom } = messageElement.getBoundingClientRect();
+    let distance = 0;
+    if (clientY < top) distance = top - clientY;
+    if (clientY > bottom) distance = clientY - bottom;
+    if (distance >= closestDistance) return;
+    closestItem = item;
+    closestDistance = distance;
+  });
+
+  return closestItem;
+};
 
 type Timeline = {
   linkedTimelines: EventTimeline[];
@@ -537,6 +585,102 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
   const [timeline, setTimeline] = useState<Timeline>(() =>
     eventId ? getEmptyTimeline() : getInitialTimeline(room)
   );
+  const [messageSelection, setMessageSelection] = useState<MessageSelection>();
+  const messageSelectionDragRef = useRef<MessageSelectionDrag>();
+
+  const getSelectionBounds = useCallback(
+    (selection: MessageSelection) => ({
+      start: Math.min(selection.anchorIndex, selection.focusIndex),
+      end: Math.max(selection.anchorIndex, selection.focusIndex),
+    }),
+    []
+  );
+
+  const selectedMessageText = useMemo(() => {
+    if (!messageSelection) return undefined;
+    const { start, end } = getSelectionBounds(messageSelection);
+    const selectedText: string[] = [];
+
+    for (let item = start; item <= end; item += 1) {
+      const [eventTimeline, baseIndex] = getTimelineAndBaseIndex(timeline.linkedTimelines, item);
+      if (eventTimeline) {
+        const mEvent = getTimelineEvent(eventTimeline, getTimelineRelativeIndex(item, baseIndex));
+        const copyableEvent =
+          mEvent &&
+          COPYABLE_MESSAGE_EVENT_TYPES.has(mEvent.getType()) &&
+          !reactionOrEditEvent(mEvent);
+        const messageText = copyableEvent ? getMessageCopyText(room, mEvent) : undefined;
+        if (messageText) selectedText.push(messageText);
+      }
+    }
+
+    return selectedText.length > 0 ? selectedText.join('\n\n') : undefined;
+  }, [getSelectionBounds, messageSelection, room, timeline.linkedTimelines]);
+
+  const handleMessageSelectionMouseDown = useCallback((evt: React.MouseEvent<HTMLDivElement>) => {
+    if (evt.button !== 0) return;
+    const { target } = evt;
+    if (target instanceof Element && target.closest(MESSAGE_SELECTION_INTERACTIVE_SELECTOR)) return;
+
+    const messageElement = target instanceof Element ? target.closest(MESSAGE_ITEM_SELECTOR) : null;
+    const directMessageItem = getMessageItem(messageElement);
+    const anchorIndex = directMessageItem ?? getClosestMessageItem(evt.currentTarget, evt.clientY);
+    if (anchorIndex === undefined) return;
+
+    const nativeTextSelection = directMessageItem !== undefined;
+    if (!nativeTextSelection) {
+      evt.preventDefault();
+      window.getSelection()?.removeAllRanges();
+    }
+
+    setMessageSelection(undefined);
+    messageSelectionDragRef.current = {
+      anchorIndex,
+      focusIndex: anchorIndex,
+      active: false,
+      nativeTextSelection,
+      startX: evt.clientX,
+      startY: evt.clientY,
+    };
+  }, []);
+
+  const handleMessageSelectionMouseMove = useCallback((evt: React.MouseEvent<HTMLDivElement>) => {
+    const drag = messageSelectionDragRef.current;
+    if (!drag) return;
+    if (evt.buttons !== 1) {
+      messageSelectionDragRef.current = undefined;
+      return;
+    }
+
+    const item = getClosestMessageItem(evt.currentTarget, evt.clientY);
+    if (item === undefined) return;
+
+    const dragDistance = Math.hypot(evt.clientX - drag.startX, evt.clientY - drag.startY);
+    if (!drag.active && dragDistance < MESSAGE_SELECTION_DRAG_THRESHOLD) return;
+    if (!drag.active && drag.nativeTextSelection && item === drag.anchorIndex) return;
+
+    drag.active = true;
+    drag.focusIndex = item;
+    evt.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    setMessageSelection((currentSelection) => {
+      if (
+        currentSelection?.anchorIndex === drag.anchorIndex &&
+        currentSelection.focusIndex === item
+      )
+        return currentSelection;
+      return { anchorIndex: drag.anchorIndex, focusIndex: item };
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      messageSelectionDragRef.current = undefined;
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, []);
+
   const eventsLength = getTimelinesEventsCount(timeline.linkedTimelines);
   const liveTimelineLinked =
     timeline.linkedTimelines[timeline.linkedTimelines.length - 1] === getLiveTimeline(room);
@@ -1017,6 +1161,19 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
   );
   const { t } = useTranslation();
 
+  const getMessageSelectionProps = useCallback(
+    (item: number) => {
+      const bounds = messageSelection && getSelectionBounds(messageSelection);
+      const selectionSelected = !!bounds && item >= bounds.start && item <= bounds.end;
+
+      return {
+        selectionSelected,
+        selectedText: selectionSelected ? selectedMessageText : undefined,
+      };
+    },
+    [getSelectionBounds, messageSelection, selectedMessageText]
+  );
+
   const renderMatrixEvent = useMatrixEventRenderer<
     [string, MatrixEvent, number, EventTimelineSet, boolean]
   >(
@@ -1047,6 +1204,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
             messageLayout={messageLayout}
             collapse={collapse}
             highlight={highlighted}
+            {...getMessageSelectionProps(item)}
             edit={editId === mEventId}
             canDelete={canRedact || (canDeleteOwn && mEvent.getSender() === mx.getUserId())}
             canSendReaction={canSendReaction}
@@ -1129,6 +1287,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
             messageLayout={messageLayout}
             collapse={collapse}
             highlight={highlighted}
+            {...getMessageSelectionProps(item)}
             edit={editId === mEventId}
             canDelete={canRedact || (canDeleteOwn && mEvent.getSender() === mx.getUserId())}
             canSendReaction={canSendReaction}
@@ -1248,6 +1407,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
             messageLayout={messageLayout}
             collapse={collapse}
             highlight={highlighted}
+            {...getMessageSelectionProps(item)}
             canDelete={canRedact || (canDeleteOwn && mEvent.getSender() === mx.getUserId())}
             canSendReaction={canSendReaction}
             canPinEvent={canPinEvent}
@@ -1744,6 +1904,8 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
           direction="Column"
           justifyContent="End"
           style={{ minHeight: '100%', padding: `${config.space.S600} 0` }}
+          onMouseDown={handleMessageSelectionMouseDown}
+          onMouseMove={handleMessageSelectionMouseMove}
         >
           {!canPaginateBack && rangeAtStart && getItems().length > 0 && (
             <div
