@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Box, Text, config } from 'folds';
 import { EventType } from 'matrix-js-sdk';
 import { ReactEditor } from 'slate-react';
@@ -72,6 +72,12 @@ export function RoomView({ eventId }: { eventId?: string }) {
 
   const permissions = useRoomPermissions(creators, powerLevels);
   const canMessage = permissions.event(EventType.RoomMessage, mx.getSafeUserId());
+
+  useEffect(() => {
+    if (!canMessage) return;
+
+    ReactEditor.focus(editor);
+  }, [canMessage, editor, roomId]);
 
   useKeyDown(
     window,
