@@ -1,6 +1,6 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Box, Line } from 'folds';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { isKeyHotkey } from 'is-hotkey';
 import { useAtomValue } from 'jotai';
 import { RoomView } from './RoomView';
@@ -20,11 +20,13 @@ import { callChatAtom } from '../../state/callEmbed';
 import { CallChatView } from './CallChatView';
 import { useCallEmbed } from '../../hooks/useCallEmbed';
 import { useCallMembers, useCallSession } from '../../hooks/useCall';
+import { setLastOpenedRoomPath } from '../../state/lastOpenedRoom';
 
 export function Room() {
   const { eventId } = useParams();
   const room = useRoom();
   const mx = useMatrixClient();
+  const location = useLocation();
 
   const callSession = useCallSession(room);
   const callMembers = useCallMembers(callSession);
@@ -36,6 +38,10 @@ export function Room() {
   const powerLevels = usePowerLevels(room);
   const members = useRoomMembers(mx, room.roomId);
   const chat = useAtomValue(callChatAtom);
+
+  useEffect(() => {
+    setLastOpenedRoomPath(mx.getSafeUserId(), location.pathname);
+  }, [location.pathname, mx]);
 
   useKeyDown(
     window,
