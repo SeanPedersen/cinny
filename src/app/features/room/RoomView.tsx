@@ -13,7 +13,7 @@ import { RoomTimeline } from './RoomTimeline';
 import { RoomViewTyping } from './RoomViewTyping';
 import { RoomTombstone } from './RoomTombstone';
 import { RoomInput } from './RoomInput';
-import { RoomViewFollowing, RoomViewFollowingPlaceholder } from './RoomViewFollowing';
+import { RoomViewFollowing } from './RoomViewFollowing';
 import { Page } from '../../components/page';
 import { useKeyDown } from '../../hooks/useKeyDown';
 import { editableActiveElement } from '../../utils/dom';
@@ -99,17 +99,10 @@ export function RoomView({ eventId }: { eventId?: string }) {
   return (
     <Page ref={roomViewRef}>
       <Box grow="Yes" direction="Column">
-        <RoomTimeline
-          key={roomId}
-          room={room}
-          eventId={eventId}
-          roomInputRef={roomInputRef}
-          editor={editor}
-        />
+        <RoomTimeline key={roomId} room={room} eventId={eventId} editor={editor} />
         <RoomViewTyping room={room} />
       </Box>
       <Box shrink="No" direction="Column">
-        {hideActivity ? <RoomViewFollowingPlaceholder /> : <RoomViewFollowing room={room} />}
         {tombstoneEvent ? (
           <div style={{ padding: `0 ${config.space.S400}` }}>
             <RoomTombstone
@@ -142,6 +135,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
             )}
           </>
         )}
+        {!hideActivity && <RoomViewFollowing room={room} />}
       </Box>
     </Page>
   );

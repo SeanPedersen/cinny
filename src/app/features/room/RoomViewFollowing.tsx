@@ -24,10 +24,6 @@ import { useRoomEventReaders } from '../../hooks/useRoomEventReaders';
 import { EventReaders } from '../../components/event-readers';
 import { stopPropagation } from '../../utils/keyboard';
 
-export function RoomViewFollowingPlaceholder() {
-  return <div className={css.RoomViewFollowingPlaceholder} />;
-}
-
 export type RoomViewFollowingProps = {
   room: Room;
 };
@@ -44,6 +40,8 @@ export const RoomViewFollowing = as<'div', RoomViewFollowingProps>(
       );
 
     const eventId = latestEvent?.getId();
+
+    if (names.length === 0) return null;
 
     return (
       <>

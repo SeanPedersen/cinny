@@ -2,7 +2,6 @@
 import React, {
   Dispatch,
   MouseEventHandler,
-  RefObject,
   SetStateAction,
   useCallback,
   useEffect,
@@ -96,7 +95,7 @@ import {
 } from '../../hooks/useIntersectionObserver';
 import { markAsRead } from '../../utils/notifications';
 import { useDebounce } from '../../hooks/useDebounce';
-import { getResizeObserverEntry, useResizeObserver } from '../../hooks/useResizeObserver';
+import { useResizeObserver } from '../../hooks/useResizeObserver';
 import * as css from './RoomTimeline.css';
 import { inSameDay, minuteDifference, timeDayMonthYear, today, yesterday } from '../../utils/time';
 import { createMentionElement, isEmptyEditor, moveCursor } from '../../components/editor';
@@ -226,7 +225,6 @@ export const getEventIdAbsoluteIndex = (
 type RoomTimelineProps = {
   room: Room;
   eventId?: string;
-  roomInputRef: RefObject<HTMLElement>;
   editor: Editor;
 };
 
@@ -482,7 +480,7 @@ const getRoomUnreadInfo = (room: Room, scrollTo = false) => {
   };
 };
 
-export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimelineProps) {
+export function RoomTimeline({ room, eventId, editor }: RoomTimelineProps) {
   const mx = useMatrixClient();
   const useAuthentication = useMediaAuthentication();
   const [hideActivity] = useSetting(settingsAtom, 'hideActivity');
@@ -784,7 +782,8 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
         // keep paginating timeline and conditionally mark as read
         // otherwise we update timeline without paginating
         // so timeline can be updated with evt like: edits, reactions etc
-        if (atBottomRef.current) {
+        const isOwnMessage = mEvt.getSender() === mx.getUserId();
+        if (atBottomRef.current || isOwnMessage) {
           if (document.hasFocus() && (!unreadInfo || mEvt.getSender() === mx.getUserId())) {
             // Check if the document is in focus (user is actively viewing the app),
             // and either there are no unread messages or the latest message is from the current user.
@@ -797,7 +796,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
           }
 
           scrollToBottomRef.current.count += 1;
-          scrollToBottomRef.current.smooth = true;
+          scrollToBottomRef.current.smooth = false;
 
           setTimeline((ct) => ({
             ...ct,
@@ -859,27 +858,17 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
     }, [room, liveTimelineLinked])
   );
 
-  // Stay at bottom when room editor resize
+  // Stay at bottom when the composer changes the timeline viewport size.
   useResizeObserver(
-    useMemo(() => {
-      let mounted = false;
-      return (entries) => {
-        if (!mounted) {
-          // skip initial mounting call
-          mounted = true;
-          return;
-        }
-        if (!roomInputRef.current) return;
-        const editorBaseEntry = getResizeObserverEntry(roomInputRef.current, entries);
-        const scrollElement = getScrollElement();
-        if (!editorBaseEntry || !scrollElement) return;
+    useCallback(() => {
+      const scrollElement = getScrollElement();
+      if (!scrollElement || !atBottomRef.current) return;
 
-        if (atBottomRef.current) {
-          scrollToBottom(scrollElement);
-        }
-      };
-    }, [getScrollElement, roomInputRef]),
-    useCallback(() => roomInputRef.current, [roomInputRef])
+      requestAnimationFrame(() => {
+        if (atBottomRef.current) scrollToBottom(scrollElement);
+      });
+    }, [getScrollElement]),
+    useCallback(() => scrollRef.current, [])
   );
 
   // Stay at bottom while timeline content finishes rendering.
