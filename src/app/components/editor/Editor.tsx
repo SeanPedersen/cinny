@@ -60,6 +60,7 @@ export const useEditor = (): Editor => {
 export type EditorChangeHandler = (value: Descendant[]) => void;
 type CustomEditorProps = {
   editableName?: string;
+  borderRadius?: string;
   top?: ReactNode;
   bottom?: ReactNode;
   before?: ReactNode;
@@ -76,6 +77,7 @@ export const CustomEditor = forwardRef<HTMLDivElement, CustomEditorProps>(
   (
     {
       editableName,
+      borderRadius,
       top,
       bottom,
       before,
@@ -119,7 +121,7 @@ export const CustomEditor = forwardRef<HTMLDivElement, CustomEditorProps>(
     );
 
     return (
-      <div className={css.Editor} ref={ref}>
+      <div className={css.Editor} style={{ borderRadius }} ref={ref}>
         <Slate editor={editor} initialValue={initialValue} onChange={onChange}>
           {top}
           <Box alignItems="Start">

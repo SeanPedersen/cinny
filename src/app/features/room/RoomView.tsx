@@ -109,25 +109,28 @@ export function RoomView({ eventId }: { eventId?: string }) {
         <RoomViewTyping room={room} />
       </Box>
       <Box shrink="No" direction="Column">
-        <div style={{ padding: `0 ${config.space.S400}` }}>
-          {tombstoneEvent ? (
+        {hideActivity ? <RoomViewFollowingPlaceholder /> : <RoomViewFollowing room={room} />}
+        {tombstoneEvent ? (
+          <div style={{ padding: `0 ${config.space.S400}` }}>
             <RoomTombstone
               roomId={roomId}
               body={tombstoneEvent.getContent().body}
               replacementRoomId={tombstoneEvent.getContent().replacement_room}
             />
-          ) : (
-            <>
-              {canMessage && (
-                <RoomInput
-                  room={room}
-                  editor={editor}
-                  roomId={roomId}
-                  fileDropContainerRef={roomViewRef}
-                  ref={roomInputRef}
-                />
-              )}
-              {!canMessage && (
+          </div>
+        ) : (
+          <>
+            {canMessage && (
+              <RoomInput
+                room={room}
+                editor={editor}
+                roomId={roomId}
+                fileDropContainerRef={roomViewRef}
+                ref={roomInputRef}
+              />
+            )}
+            {!canMessage && (
+              <div style={{ padding: `0 ${config.space.S400}` }}>
                 <RoomInputPlaceholder
                   style={{ padding: config.space.S200 }}
                   alignItems="Center"
@@ -135,11 +138,10 @@ export function RoomView({ eventId }: { eventId?: string }) {
                 >
                   <Text align="Center">You do not have permission to post in this room</Text>
                 </RoomInputPlaceholder>
-              )}
-            </>
-          )}
-        </div>
-        {hideActivity ? <RoomViewFollowingPlaceholder /> : <RoomViewFollowing room={room} />}
+              </div>
+            )}
+          </>
+        )}
       </Box>
     </Page>
   );
