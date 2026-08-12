@@ -14,13 +14,13 @@ import {
   TooltipProvider,
   as,
 } from 'folds';
-import FileSaver from 'file-saver';
 import { EncryptedAttachmentInfo } from 'browser-encrypt-attachment';
 import FocusTrap from 'focus-trap-react';
 import { IFileInfo } from '../../../../types/matrix/common';
 import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { bytesToSize } from '../../../utils/common';
+import { saveToDownloads } from '../../../utils/download';
 import {
   READABLE_EXT_TO_MIME_TYPE,
   READABLE_TEXT_MIME_TYPES,
@@ -261,9 +261,8 @@ export function DownloadFile({ body, mimeType, url, info, encInfo }: DownloadFil
         ? await downloadEncryptedMedia(mediaUrl, (encBuf) => decryptFile(encBuf, mimeType, encInfo))
         : await downloadMedia(mediaUrl);
 
-      const fileURL = URL.createObjectURL(fileContent);
-      FileSaver.saveAs(fileURL, body);
-      return fileURL;
+      await saveToDownloads(fileContent, body);
+      return fileContent;
     }, [mx, url, useAuthentication, mimeType, encInfo, body])
   );
 
@@ -277,7 +276,7 @@ export function DownloadFile({ body, mimeType, url, info, encInfo }: DownloadFil
       size="400"
       onClick={() =>
         downloadState.status === AsyncStatus.Success
-          ? FileSaver.saveAs(downloadState.data, body)
+          ? saveToDownloads(downloadState.data, body)
           : download()
       }
       disabled={downloadState.status === AsyncStatus.Loading}

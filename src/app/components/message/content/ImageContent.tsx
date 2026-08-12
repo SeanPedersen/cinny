@@ -1,10 +1,11 @@
-import React, { ReactNode, useCallback, useEffect, useState } from 'react';
+import React, { MouseEventHandler, ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   Badge,
   Box,
   Button,
   Chip,
   Icon,
+  IconButton,
   Icons,
   Modal,
   Overlay,
@@ -27,10 +28,16 @@ import * as css from './style.css';
 import { bytesToSize } from '../../../utils/common';
 import { FALLBACK_MIMETYPE } from '../../../utils/mimeTypes';
 import { stopPropagation } from '../../../utils/keyboard';
-import { decryptFile, downloadEncryptedMedia, mxcUrlToHttp } from '../../../utils/matrix';
+import {
+  decryptFile,
+  downloadEncryptedMedia,
+  downloadMedia,
+  mxcUrlToHttp,
+} from '../../../utils/matrix';
 import { useMediaAuthentication } from '../../../hooks/useMediaAuthentication';
 import { ModalWide } from '../../../styles/Modal.css';
 import { validBlurHash } from '../../../utils/blurHash';
+import { saveToDownloads } from '../../../utils/download';
 
 type RenderViewerProps = {
   src: string;
@@ -98,6 +105,15 @@ export const ImageContent = as<'div', ImageContentProps>(
         return mediaUrl;
       }, [mx, url, useAuthentication, mimeType, encInfo])
     );
+    const [downloadState, download] = useAsyncCallback(
+      useCallback(async () => {
+        if (srcState.status !== AsyncStatus.Success) throw new Error('Image is not loaded');
+
+        const fileContent = await downloadMedia(srcState.data);
+        await saveToDownloads(fileContent, body);
+        return fileContent;
+      }, [srcState, body])
+    );
 
     const handleLoad = () => {
       setLoad(true);
@@ -110,6 +126,11 @@ export const ImageContent = as<'div', ImageContentProps>(
     const handleRetry = () => {
       setError(false);
       loadSrc();
+    };
+
+    const handleDownload: MouseEventHandler<HTMLButtonElement> = (event) => {
+      event.stopPropagation();
+      download();
     };
 
     useEffect(() => {
@@ -143,6 +164,23 @@ export const ImageContent = as<'div', ImageContentProps>(
               </FocusTrap>
             </OverlayCenter>
           </Overlay>
+        )}
+        {srcState.status === AsyncStatus.Success && load && !blurred && (
+          <IconButton
+            className={css.DownloadButton}
+            variant={downloadState.status === AsyncStatus.Error ? 'Critical' : 'Surface'}
+            size="300"
+            radii="Pill"
+            onClick={handleDownload}
+            disabled={downloadState.status === AsyncStatus.Loading}
+            aria-label={`Download ${body}`}
+          >
+            {downloadState.status === AsyncStatus.Loading ? (
+              <Spinner size="100" variant="Secondary" />
+            ) : (
+              <Icon size="100" src={Icons.Download} />
+            )}
+          </IconButton>
         )}
         {typeof blurHash === 'string' && !load && (
           <BlurhashCanvas

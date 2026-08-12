@@ -32,6 +32,14 @@ export const AbsoluteFooter = style([
   },
 ]);
 
+export const DownloadButton = style({
+  position: 'absolute',
+  right: config.space.S200,
+  bottom: config.space.S200,
+  zIndex: 1,
+  boxShadow: config.shadow.E200,
+});
+
 export const Blur = style([
   DefaultReset,
   {
