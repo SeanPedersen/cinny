@@ -451,25 +451,33 @@ export const MessageDeleteItem = as<
   {
     room: Room;
     mEvent: MatrixEvent;
+    selectedEvents?: MatrixEvent[];
     onClose?: () => void;
   }
->(({ room, mEvent, onClose, ...props }, ref) => {
+>(({ room, mEvent, selectedEvents, onClose, ...props }, ref) => {
   const mx = useMatrixClient();
   const [open, setOpen] = useState(false);
+  const events = selectedEvents?.length ? selectedEvents : [mEvent];
+  const isBulkDelete = events.length > 1;
+  const deleteButtonText = isBulkDelete ? 'Delete Selected' : 'Delete';
 
   const [deleteState, deleteMessage] = useAsyncCallback(
     useCallback(
-      (eventId: string, reason?: string) =>
-        mx.redactEvent(room.roomId, eventId, undefined, reason ? { reason } : undefined),
+      (eventIds: string[], reason?: string) =>
+        Promise.all(
+          eventIds.map((eventId) =>
+            mx.redactEvent(room.roomId, eventId, undefined, reason ? { reason } : undefined)
+          )
+        ),
       [mx, room]
     )
   );
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = (evt) => {
     evt.preventDefault();
-    const eventId = mEvent.getId();
+    const eventIds = events.map((event) => event.getId()).filter((id): id is string => !!id);
     if (
-      !eventId ||
+      eventIds.length === 0 ||
       deleteState.status === AsyncStatus.Loading ||
       deleteState.status === AsyncStatus.Success
     )
@@ -477,7 +485,7 @@ export const MessageDeleteItem = as<
     const target = evt.target as HTMLFormElement | undefined;
     const reasonInput = target?.reasonInput as HTMLInputElement | undefined;
     const reason = reasonInput && reasonInput.value.trim();
-    deleteMessage(eventId, reason);
+    deleteMessage(eventIds, reason);
   };
 
   const handleClose = () => {
@@ -521,7 +529,8 @@ export const MessageDeleteItem = as<
                 gap="400"
               >
                 <Text priority="400">
-                  This action is irreversible! Are you sure that you want to delete this message?
+                  This action is irreversible! Are you sure that you want to delete{' '}
+                  {isBulkDelete ? 'these messages' : 'this message'}?
                 </Text>
                 <Box direction="Column" gap="100">
                   <Text size="L400">
@@ -548,7 +557,7 @@ export const MessageDeleteItem = as<
                   aria-disabled={deleteState.status === AsyncStatus.Loading}
                 >
                   <Text size="B400">
-                    {deleteState.status === AsyncStatus.Loading ? 'Deleting...' : 'Delete'}
+                    {deleteState.status === AsyncStatus.Loading ? 'Deleting...' : deleteButtonText}
                   </Text>
                 </Button>
               </Box>
@@ -568,7 +577,7 @@ export const MessageDeleteItem = as<
         ref={ref}
       >
         <Text className={css.MessageMenuItemText} as="span" size="T300" truncate>
-          Delete
+          {isBulkDelete ? 'Delete Selected' : 'Delete'}
         </Text>
       </Button>
     </>
@@ -736,6 +745,7 @@ export type MessageProps = {
   showDeveloperTools?: boolean;
   selectionSelected?: boolean;
   selectedText?: string;
+  selectedEvents?: MatrixEvent[];
   memberPowerTag?: MemberPowerTag;
   accessibleTagColors?: Map<string, string>;
   legacyUsernameColor?: boolean;
@@ -769,6 +779,7 @@ export const Message = as<'div', MessageProps>(
       showDeveloperTools,
       selectionSelected,
       selectedText,
+      selectedEvents,
       memberPowerTag,
       accessibleTagColors,
       legacyUsernameColor,
@@ -1177,6 +1188,17 @@ export const Message = as<'div', MessageProps>(
                                   onClose={closeMenu}
                                 />
                               )}
+                              {!mEvent.isRedacted() &&
+                                canDelete &&
+                                selectedEvents &&
+                                selectedEvents.length > 1 && (
+                                  <MessageDeleteItem
+                                    room={room}
+                                    mEvent={mEvent}
+                                    selectedEvents={selectedEvents}
+                                    onClose={closeMenu}
+                                  />
+                                )}
                               {mEvent.getSender() !== mx.getUserId() && (
                                 <MessageReportItem
                                   room={room}

@@ -409,7 +409,11 @@ const useTimelinePagination = (
   return handleTimelinePagination;
 };
 
-const useLiveEventArrive = (room: Room, onArrive: (mEvent: MatrixEvent) => void) => {
+const useLiveEventArrive = (
+  room: Room,
+  onArrive: (mEvent: MatrixEvent) => void,
+  onRedaction: () => void
+) => {
   useEffect(() => {
     const handleTimelineEvent: EventTimelineSetHandlerMap[RoomEvent.Timeline] = (
       mEvent,
@@ -423,7 +427,7 @@ const useLiveEventArrive = (room: Room, onArrive: (mEvent: MatrixEvent) => void)
     };
     const handleRedaction: RoomEventHandlerMap[RoomEvent.Redaction] = (mEvent, eventRoom) => {
       if (eventRoom?.roomId !== room.roomId) return;
-      onArrive(mEvent);
+      onRedaction();
     };
 
     room.on(RoomEvent.Timeline, handleTimelineEvent);
@@ -432,7 +436,7 @@ const useLiveEventArrive = (room: Room, onArrive: (mEvent: MatrixEvent) => void)
       room.removeListener(RoomEvent.Timeline, handleTimelineEvent);
       room.removeListener(RoomEvent.Redaction, handleRedaction);
     };
-  }, [room, onArrive]);
+  }, [room, onArrive, onRedaction]);
 };
 
 const useLiveTimelineRefresh = (room: Room, onRefresh: () => void) => {
@@ -619,6 +623,29 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
     return selectedText.length > 0 ? selectedText.join('\n\n') : undefined;
   }, [getSelectionBounds, messageSelection, room, timeline.linkedTimelines]);
 
+  const selectedMessageEvents = useMemo(() => {
+    if (!messageSelection) return [];
+    const { start, end } = getSelectionBounds(messageSelection);
+    const selectedEvents: MatrixEvent[] = [];
+
+    for (let item = start; item <= end; item += 1) {
+      const [eventTimeline, baseIndex] = getTimelineAndBaseIndex(timeline.linkedTimelines, item);
+      if (eventTimeline) {
+        const mEvent = getTimelineEvent(eventTimeline, getTimelineRelativeIndex(item, baseIndex));
+        if (
+          mEvent &&
+          COPYABLE_MESSAGE_EVENT_TYPES.has(mEvent.getType()) &&
+          !reactionOrEditEvent(mEvent) &&
+          !mEvent.isRedacted()
+        ) {
+          selectedEvents.push(mEvent);
+        }
+      }
+    }
+
+    return selectedEvents;
+  }, [getSelectionBounds, messageSelection, timeline.linkedTimelines]);
+
   const handleMessageSelectionMouseDown = useCallback((evt: React.MouseEvent<HTMLDivElement>) => {
     if (evt.button !== 0) return;
     const { target } = evt;
@@ -787,7 +814,10 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
         }
       },
       [mx, room, unreadInfo, hideActivity]
-    )
+    ),
+    useCallback(() => {
+      setTimeline((ct) => ({ ...ct }));
+    }, [])
   );
 
   const handleOpenEvent = useCallback(
@@ -1179,13 +1209,27 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
     (item: number) => {
       const bounds = messageSelection && getSelectionBounds(messageSelection);
       const selectionSelected = !!bounds && item >= bounds.start && item <= bounds.end;
+      const canDeleteSelected =
+        selectedMessageEvents.length > 1 &&
+        selectedMessageEvents.every(
+          (event) => canRedact || (canDeleteOwn && event.getSender() === mx.getUserId())
+        );
 
       return {
         selectionSelected,
         selectedText: selectionSelected ? selectedMessageText : undefined,
+        selectedEvents: selectionSelected && canDeleteSelected ? selectedMessageEvents : undefined,
       };
     },
-    [getSelectionBounds, messageSelection, selectedMessageText]
+    [
+      canDeleteOwn,
+      canRedact,
+      getSelectionBounds,
+      messageSelection,
+      mx,
+      selectedMessageEvents,
+      selectedMessageText,
+    ]
   );
 
   const renderMatrixEvent = useMatrixEventRenderer<
